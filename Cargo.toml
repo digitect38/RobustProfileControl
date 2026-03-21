@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/control-core", "crates/wasm-bridge"]
+resolver = "2"

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CMP Profile Control Simulator</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>CMP Profile Control <span class="accent">H<sub>&infin;</sub></span> Simulator</h1>
+    <div class="header-actions">
+      <button id="btn-run" class="btn btn-primary">Run Simulation</button>
+      <button id="btn-animate" class="btn btn-teal">Animate</button>
+      <button id="btn-stop" class="btn">Stop</button>
+      <button id="btn-reset" class="btn">Reset</button>
+      <span id="status-text" class="status"></span>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <!-- Sidebar: Parameters -->
+    <aside class="sidebar">
+      <section class="param-group">
+        <h3>CMP Process</h3>
+        <div class="param-info">Initial: 10,000 Å (range 1,000 Å)</div>
+        <div class="param-info">Target: 2,000 Å (range &le; 50 Å)</div>
+        <div class="param-info">Removal: ~50 Å/turn @ 1 sec/turn</div>
+      </section>
+
+      <section class="param-group">
+        <h3>Simulation</h3>
+        <label>Wafers <input type="number" id="cfg-wafers" value="30" min="2" max="200"></label>
+        <label>Turns/wafer <input type="number" id="cfg-turns" value="160" min="20" max="500"></label>
+        <label>Metro delay <input type="number" id="cfg-delay" value="1" min="0" max="10"></label>
+        <label>SVD modes (r<sub>c</sub>) <input type="range" id="cfg-rc" min="1" max="11" value="8"><span id="cfg-rc-val">8</span></label>
+        <label>Seed <input type="number" id="cfg-seed" value="42" min="1" max="9999"></label>
+      </section>
+
+      <section class="param-group">
+        <h3>Controllers</h3>
+        <label class="toggle"><input type="checkbox" id="cfg-inrun" checked> Enable InRun</label>
+        <label class="toggle"><input type="checkbox" id="cfg-r2r" checked> Enable R2R</label>
+      </section>
+
+      <section class="param-group">
+        <h3>Disturbance</h3>
+        <label>Amplitude (Å/turn) <input type="range" id="cfg-dist" min="0" max="20" step="0.5" value="3"><span id="cfg-dist-val">3</span></label>
+        <label>Noise (Å) <input type="range" id="cfg-noise" min="0" max="20" step="0.5" value="5"><span id="cfg-noise-val">5</span></label>
+      </section>
+
+      <section class="param-group">
+        <h3>Wear Drift</h3>
+        <label class="toggle"><input type="checkbox" id="cfg-wear"> Enable wear</label>
+        <label>Rate <input type="range" id="cfg-wear-rate" min="0" max="0.1" step="0.005" value="0.02"><span id="cfg-wear-rate-val">0.02</span></label>
+      </section>
+
+      <section class="param-group">
+        <h3>Wafer Inspector</h3>
+        <label>Wafer # <input type="range" id="wafer-slider" min="0" max="29" value="0"><span id="wafer-slider-val">0</span></label>
+        <label>Anim speed (ms) <input type="range" id="anim-speed" min="10" max="500" step="10" value="50"><span id="anim-speed-val">50</span></label>
+      </section>
+    </aside>
+
+    <!-- Main: Tabbed Charts -->
+    <main class="content">
+      <nav class="tabs">
+        <button class="tab active" data-tab="profile">Profile</button>
+        <button class="tab" data-tab="influence">G₀ Influence</button>
+        <button class="tab" data-tab="zonetest">Zone Test</button>
+        <button class="tab" data-tab="pressure">Pressure</button>
+        <button class="tab" data-tab="error">Error</button>
+        <button class="tab" data-tab="svd">SVD</button>
+        <button class="tab" data-tab="metrics">Metrics</button>
+      </nav>
+
+      <div class="tab-panels">
+        <!-- Profile Tab -->
+        <div class="tab-panel active" id="panel-profile">
+          <div class="chart-container tall">
+            <canvas id="chart-profile"></canvas>
+          </div>
+          <div class="chart-subtitle">Wafer thickness profile: -150 mm (edge) &rarr; 0 (center) &rarr; +150 mm (edge) &mdash; All values in Angstroms (&Aring;)</div>
+        </div>
+
+        <!-- Influence Matrix Tab -->
+        <div class="tab-panel" id="panel-influence">
+          <div class="chart-container tall">
+            <canvas id="chart-influence"></canvas>
+          </div>
+          <div class="chart-subtitle">
+            G₀ influence matrix: removal rate per unit pressure for each carrier zone.
+            Gaussian σ = 6 mm with edge reflection at R = 150 mm.
+            Zone widths: 30, 20, 20, 20, 20, 10, 10, 10, 5, 5 mm + RR(20 mm).
+          </div>
+          <div class="chart-container" style="height:250px;">
+            <canvas id="chart-influence-heatmap"></canvas>
+          </div>
+          <div class="chart-subtitle">Zone coverage: colored bands show each zone's radial extent on the wafer</div>
+        </div>
+
+        <!-- Zone Test Tab -->
+        <div class="tab-panel" id="panel-zonetest">
+          <div class="zone-test-controls">
+            <h3>Zone-by-Zone Pressure Test</h3>
+            <p class="param-info">Set individual zone pressures and observe the resulting removal profile. All other zones at 0 psi unless set.</p>
+            <div class="zone-sliders" id="zone-sliders"></div>
+            <div style="margin:8px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <button class="btn" id="btn-zone-reset">All to 0</button>
+              <button class="btn" id="btn-zone-nominal">All to 3.5 psi</button>
+              <button class="btn" id="btn-zone-solo">Solo Sweep</button>
+              <span style="margin-left:16px; font-size:0.85rem; color:var(--text-light);">Y max:</span>
+              <input type="range" id="zt-ymax" min="5" max="200" step="5" value="80" style="width:120px;">
+              <span id="zt-ymax-val" style="font-size:0.85rem; font-weight:600; color:var(--blue); min-width:40px;">80</span>
+              <span style="font-size:0.75rem; color:var(--text-light);">Å/turn</span>
+            </div>
+          </div>
+          <div class="chart-container tall">
+            <canvas id="chart-zone-test"></canvas>
+          </div>
+          <div class="chart-subtitle">Removal profile = G₀ × u (Å/turn). Set one zone at a time to see its individual contribution.</div>
+          <div class="chart-container">
+            <canvas id="chart-zone-solo"></canvas>
+          </div>
+          <div class="chart-subtitle">Solo sweep: each zone set to 3.5 psi alone, all others at 0. Shows independent contribution of every zone.</div>
+        </div>
+
+        <!-- Pressure Tab -->
+        <div class="tab-panel" id="panel-pressure">
+          <div class="chart-container">
+            <canvas id="chart-pressure"></canvas>
+          </div>
+          <div class="chart-subtitle">Pressure commands for 10 carrier zones + retaining ring (psi)</div>
+        </div>
+
+        <!-- Error Tab -->
+        <div class="tab-panel" id="panel-error">
+          <div class="chart-row">
+            <div class="chart-container half">
+              <canvas id="chart-error-r2r"></canvas>
+            </div>
+            <div class="chart-container half">
+              <canvas id="chart-error-inrun"></canvas>
+            </div>
+          </div>
+          <div class="chart-subtitle">Left: Wafer-level convergence (R2R) &mdash; Right: Turn-level tracking (InRun). Green dashed = 50 Å target range.</div>
+          <div class="chart-container tall">
+            <canvas id="chart-pressure-time"></canvas>
+          </div>
+          <div class="chart-subtitle">Pressure vector vs. time (1 sec/turn) for selected wafer — all 11 zones</div>
+        </div>
+
+        <!-- SVD Tab -->
+        <div class="tab-panel" id="panel-svd">
+          <div class="chart-row">
+            <div class="chart-container half">
+              <canvas id="chart-svd-values"></canvas>
+            </div>
+            <div class="chart-container half">
+              <canvas id="chart-svd-energy"></canvas>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-svd-modes"></canvas>
+          </div>
+          <div class="chart-subtitle">G₀ singular values in Å/(psi&middot;turn), mode shapes shown on -150 to +150 mm diameter</div>
+        </div>
+
+        <!-- Metrics Tab -->
+        <div class="tab-panel" id="panel-metrics">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-label">Final RMS Error</div>
+              <div class="metric-value" id="metric-final-rms">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Final Edge Error</div>
+              <div class="metric-value" id="metric-final-edge">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Final Range</div>
+              <div class="metric-value" id="metric-final-range">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Avg Removal Rate</div>
+              <div class="metric-value" id="metric-removal-rate">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Polish Time</div>
+              <div class="metric-value" id="metric-polish-time">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Saturation Events</div>
+              <div class="metric-value" id="metric-saturation">--</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">SVD Energy Captured</div>
+              <div class="metric-value" id="metric-svd-energy">--</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-saturation"></canvas>
+          </div>
+          <h3>Per-Wafer Summary</h3>
+          <div class="table-wrap">
+            <table id="metrics-table">
+              <thead>
+                <tr>
+                  <th>Wafer</th>
+                  <th>RMS Error (Å)</th>
+                  <th>Range (Å)</th>
+                  <th>Edge Error (Å)</th>
+                  <th>Removal Rate (Å/s)</th>
+                  <th>Saturations</th>
+                </tr>
+              </thead>
+              <tbody id="metrics-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
