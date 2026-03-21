@@ -2193,8 +2193,8 @@ fn weight_edge_emphasis_factor() {
     let edge_w = w.error_weights[NY - 1];
     let factor = edge_w / center_w;
     assert!(
-        (factor - 2.0).abs() < 0.01,
-        "Edge emphasis should be 2x: factor={:.4}",
+        (factor - 1.5).abs() < 0.01,
+        "Edge emphasis should be 1.5x: factor={:.4}",
         factor
     );
 }
@@ -2229,11 +2229,11 @@ fn weight_wu_dimensions() {
 fn weight_normalization_by_target_range() {
     let w = WeightConfig::default_cmp();
     let base = w.error_weights[0];
-    let expected = 1.0 / TARGET_RANGE;
+    // Base error weight = 1.0 (strong tracking priority)
     assert!(
-        (base - expected).abs() < 1e-10,
-        "Base error weight should be 1/TARGET_RANGE={}, got {}",
-        expected, base
+        (base - 1.0).abs() < 1e-10,
+        "Base error weight should be 1.0, got {}",
+        base
     );
 }
 

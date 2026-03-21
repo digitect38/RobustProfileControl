@@ -155,8 +155,8 @@ pub fn generate_synthetic_g0() -> Mat21x11 {
 
                 // Apply rebound sign: smooth transition around pivot
                 // sign_factor = +1 for r << pivot, -1 for r >> pivot
-                // Using tanh for a smooth crossover (~2 mm transition width)
-                let sign_factor = -((r - pivot) / 2.0).tanh();
+                // Using tanh with ~4 mm transition width for controllability
+                let sign_factor = -((r - pivot) / 4.0).tanh();
 
                 g_shape[(j, 10)] = envelope * sign_factor;
             } else {
@@ -326,8 +326,8 @@ pub fn default_actuator_bounds() -> ActuatorBounds {
     let mut du_min = [-0.5; NU]; // 0.5 psi/sec slew
     let mut du_max = [0.5; NU];
 
-    // Retaining ring has tighter bounds
-    u_min[10] = 0.3;
+    // Retaining ring: can go to 0 psi (turn off rebound completely)
+    u_min[10] = 0.0;
     u_max[10] = 5.0;
     du_min[10] = -0.3;
     du_max[10] = 0.3;

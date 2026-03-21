@@ -24,23 +24,24 @@ impl WeightConfig {
     pub fn default_cmp() -> Self {
         let r_out = radial_output_positions();
 
-        // Error weight: 1/target_range so QP cost is in "multiples of spec"
-        // This normalizes the error dimension to O(1) when error is at spec
-        let base_error_weight = 1.0 / 50.0; // 1 / TARGET_RANGE
+        // Error weight: strong tracking priority.
+        // With 101 outputs and 11 inputs, the QP must prioritize error minimization
+        // to avoid zone-boundary quantization artifacts.
+        let base_error_weight = 1.0;
         let mut error_weights = vec![base_error_weight; NY];
         for j in 0..NY {
             let r_norm = r_out[j] / WAFER_RADIUS;
             if r_norm > 0.85 {
-                error_weights[j] = base_error_weight * 2.0; // edge emphasis
+                error_weights[j] = base_error_weight * 1.5; // mild edge emphasis
             }
         }
 
-        // Effort weight: penalize deviation from nominal; small relative to error
-        let mut effort_weights = vec![0.01; NU];
-        effort_weights[10] = 0.02; // retaining ring more sensitive
+        // Effort weight: very small — don't fight the tracking objective
+        let mut effort_weights = vec![0.001; NU];
+        effort_weights[10] = 0.002; // retaining ring slightly more
 
-        // Slew weight: penalize fast pressure changes
-        let slew_weights = vec![0.05; NU];
+        // Slew weight: moderate — smooth turn-to-turn pressure transitions
+        let slew_weights = vec![0.01; NU];
 
         WeightConfig {
             error_weights,
