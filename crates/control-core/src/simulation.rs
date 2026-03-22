@@ -29,7 +29,7 @@ pub struct SimConfig {
     /// Record turn-level detail for every Nth wafer (0 = none)
     pub turn_detail_every_n: usize,
     /// Trajectory shape: <1 = coarse-to-fine, 1 = linear, >1 = fine-to-coarse
-    pub trajectory_shape: f64,
+    pub trajectory_alpha: f64,
 }
 
 impl Default for SimConfig {
@@ -47,7 +47,7 @@ impl Default for SimConfig {
             noise_amplitude: 5.0,       // ±5 Å metrology noise
             seed: 42,
             turn_detail_every_n: 5,
-            trajectory_shape: 1.0,      // linear (default)
+            trajectory_alpha: 0.0,      // linear (alpha=0 = no exponential decay)
         }
     }
 }
@@ -209,7 +209,7 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
 
         // Phase 2: Turn-by-turn loop.
         // Re-solve QP when there's disturbance/noise or non-linear trajectory.
-        let is_nonlinear = (config.trajectory_shape - 1.0).abs() > 0.01;
+        let is_nonlinear = config.trajectory_alpha.abs() > 0.01;
 
         // Absolute-only bounds (no slew limits) for non-linear trajectory
         let abs_bounds = ActuatorBounds {
@@ -230,11 +230,14 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
                     let trajectory_target = generate_thickness_trajectory(
                         &initial_profile, &target,
                         config.turns_per_wafer, j + 1,
-                        config.trajectory_shape,
+                        config.trajectory_alpha,
                     );
                     let noise = rng.random_vec21(config.noise_amplitude);
                     let measured_thickness = thickness + noise;
-                    let removal_needed = measured_thickness - trajectory_target;
+                    let raw_removal = measured_thickness - trajectory_target;
+
+                    // Clamp average removal rate to [25, 100] Å/turn
+                    let (removal_needed, _clamped) = clamp_removal_rate(&raw_removal);
 
                     let removal_dyn = DVector::from_fn(NY, |i, _| removal_needed[i]);
                     let u_prev_dyn = DVector::from_fn(NU, |i, _| u_prev[i]);

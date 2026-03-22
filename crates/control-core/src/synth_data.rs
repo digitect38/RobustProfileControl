@@ -254,38 +254,69 @@ pub fn generate_target_profile() -> Vec21 {
     Vec21::from_element(TARGET_THICKNESS)
 }
 
-/// Generate a target thickness trajectory for InRun control.
+/// Maximum per-turn removal rate (Å/turn average across wafer): 2× nominal
+pub const MAX_REMOVAL_RATE: f64 = NOMINAL_REMOVAL_RATE * 2.0; // 100 Å/turn
+/// Minimum per-turn removal rate (Å/turn average across wafer): 0.5× nominal
+pub const MIN_REMOVAL_RATE: f64 = NOMINAL_REMOVAL_RATE / 2.0; // 25 Å/turn
+
+/// Generate a target thickness trajectory using exponential decay.
 ///
-/// The `shape` parameter controls the removal distribution over time:
-///   shape = 1.0 → linear (constant removal rate)
-///   shape < 1.0 → coarse-to-fine (aggressive early, gentle near target)
-///   shape > 1.0 → fine-to-coarse (gentle early, aggressive late)
+/// The `alpha` parameter controls the decay rate:
+///   alpha = 0 → linear (constant removal rate, ~50 Å/turn)
+///   alpha > 0 → coarse-to-fine (fast removal early, gentle near target)
+///   alpha < 0 → fine-to-coarse (gentle early, fast late)
 ///
-/// Common CMP strategies:
-///   shape = 0.3 → very aggressive bulk removal, careful endpoint
-///   shape = 0.5 → moderate front-loading (square-root trajectory)
-///   shape = 1.0 → linear (default)
-///   shape = 2.0 → slow start, fast finish
+/// Typical values:
+///   alpha = 0.0 → linear
+///   alpha = 1.0 → moderate exponential (2.7:1 ratio early-to-late)
+///   alpha = 1.4 → 4:1 ratio (max 100 Å/turn start, min 25 Å/turn end)
+///   alpha = 3.0 → aggressive (20:1 ratio, clamped to [25, 100])
 ///
-/// The trajectory interpolates as:
-///   progress = (turn / n_turns)^shape
-///   thickness = initial * (1 - progress) + target * progress
+/// Formula (normalized so remaining(0)=1, remaining(T)=0):
+///   remaining = (exp(-α·t/T) - exp(-α)) / (1 - exp(-α))
+///   thickness = target + (initial - target) × remaining
 ///
-/// Per-turn removal rate:
-///   At t=0: removal_rate ∝ shape * (1/N)^(shape-1)  (high if shape < 1)
-///   At t=1: removal_rate ∝ shape * 1                  (normal)
+/// For α = 0: falls back to linear interpolation.
 pub fn generate_thickness_trajectory(
     initial_profile: &Vec21,
     target: &Vec21,
     n_turns: usize,
     turn: usize,
-    shape: f64,
+    alpha: f64,
 ) -> Vec21 {
     let t = (turn as f64) / (n_turns as f64).max(1.0);
     let t = t.min(1.0);
-    // Power-law progress: shape < 1 = front-loaded, shape > 1 = back-loaded
-    let progress = t.powf(shape.max(0.01));
-    initial_profile * (1.0 - progress) + target * progress
+
+    let remaining = if alpha.abs() < 0.01 {
+        // Linear: remaining goes from 1 to 0
+        1.0 - t
+    } else {
+        // Exponential decay, normalized to [1, 0]
+        let exp_at = (-alpha * t).exp();
+        let exp_a = (-alpha).exp();
+        (exp_at - exp_a) / (1.0 - exp_a)
+    };
+
+    // thickness = target + (initial - target) × remaining
+    target + (initial_profile - target) * remaining
+}
+
+/// Clamp the removal_needed vector so the wafer-average removal rate
+/// stays within [MIN_REMOVAL_RATE, MAX_REMOVAL_RATE] (25–100 Å/turn).
+///
+/// Returns the clamped removal vector and whether clamping was applied.
+pub fn clamp_removal_rate(removal_needed: &Vec21) -> (Vec21, bool) {
+    let avg: f64 = removal_needed.iter().sum::<f64>() / NY as f64;
+
+    if avg > MAX_REMOVAL_RATE {
+        let scale = MAX_REMOVAL_RATE / avg;
+        (*removal_needed * scale, true)
+    } else if avg < MIN_REMOVAL_RATE && avg > 0.0 {
+        let scale = MIN_REMOVAL_RATE / avg;
+        (*removal_needed * scale, true)
+    } else {
+        (*removal_needed, false)
+    }
 }
 
 // ============================================================================
@@ -560,7 +591,7 @@ mod tests {
         let initial = Vec21::from_element(10000.0);
         let target = Vec21::from_element(2000.0);
 
-        let mid = generate_thickness_trajectory(&initial, &target, 160, 80, 1.0);
+        let mid = generate_thickness_trajectory(&initial, &target, 160, 80, 0.0);
         // At halfway, should be ~6000
         assert!(
             (mid[0] - 6000.0).abs() < 1.0,
@@ -568,7 +599,7 @@ mod tests {
             mid[0]
         );
 
-        let end = generate_thickness_trajectory(&initial, &target, 160, 160, 1.0);
+        let end = generate_thickness_trajectory(&initial, &target, 160, 160, 0.0);
         assert!(
             (end[0] - 2000.0).abs() < 1.0,
             "End trajectory should be ~2000, got {:.0}",

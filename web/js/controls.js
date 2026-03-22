@@ -13,7 +13,7 @@ export function gatherConfig() {
     disturbance_amplitude: parseFloat(document.getElementById('cfg-dist').value),
     noise_amplitude: parseFloat(document.getElementById('cfg-noise').value),
     seed: parseInt(document.getElementById('cfg-seed').value) || 42,
-    trajectory_shape: parseFloat(document.getElementById('cfg-shape').value),
+    trajectory_alpha: parseFloat(document.getElementById('cfg-alpha').value),
     // Record turn detail for every 3rd wafer (balance memory vs animation)
     turn_detail_every_n: 3,
   };
@@ -22,7 +22,7 @@ export function gatherConfig() {
 export function setupRangeDisplays() {
   const pairs = [
     ['cfg-rc', 'cfg-rc-val'],
-    ['cfg-shape', 'cfg-shape-val'],
+    ['cfg-alpha', 'cfg-alpha-val'],
     ['cfg-dist', 'cfg-dist-val'],
     ['cfg-noise', 'cfg-noise-val'],
     ['cfg-wear-rate', 'cfg-wear-rate-val'],

@@ -212,13 +212,21 @@ export function updateTrajectoryChart(config, initialProfile, targetProfile, tur
   if (!c) return;
 
   const nTurns = config.turns_per_wafer;
-  const shape = config.trajectory_shape || 1.0;
+  const alpha = config.trajectory_alpha || 0.0;
   const centerIdx = 0;
   const edgeIdx = initialProfile.length - 1;
   const initCenter = initialProfile[centerIdx];
   const initEdge = initialProfile[edgeIdx];
   const tgtCenter = targetProfile[centerIdx];
   const tgtEdge = targetProfile[edgeIdx];
+
+  // Exponential decay remaining fraction (matches Rust formula)
+  function expRemaining(t) {
+    if (Math.abs(alpha) < 0.01) return 1.0 - t;
+    const expAt = Math.exp(-alpha * t);
+    const expA = Math.exp(-alpha);
+    return (expAt - expA) / (1.0 - expA);
+  }
 
   // Sample every N turns to keep data small
   const step = Math.max(1, Math.floor(nTurns / 80));
@@ -228,10 +236,10 @@ export function updateTrajectoryChart(config, initialProfile, targetProfile, tur
   const targetLine = [];
   for (let j = 0; j <= nTurns; j += step) {
     labels.push(j);
-    const t = j / nTurns;
-    const progress = Math.pow(Math.min(t, 1.0), shape);
-    trajCenter.push(initCenter * (1 - progress) + tgtCenter * progress);
-    trajEdge.push(initEdge * (1 - progress) + tgtEdge * progress);
+    const t = Math.min(j / nTurns, 1.0);
+    const rem = expRemaining(t);
+    trajCenter.push(tgtCenter + (initCenter - tgtCenter) * rem);
+    trajEdge.push(tgtEdge + (initEdge - tgtEdge) * rem);
     targetLine.push(2000);
   }
 

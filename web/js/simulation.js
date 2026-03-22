@@ -137,11 +137,18 @@ export function animateWafer(waferIdx, speedMs) {
     }
 
     const t = turnData[turnIdx];
-    const tNorm = (t.turn + 1) / nTurns;
-    const shape = cachedResult.config.trajectory_shape || 1.0;
-    const progress = Math.pow(Math.min(tNorm, 1.0), shape);
+    const tNorm = Math.min((t.turn + 1) / nTurns, 1.0);
+    const alpha = cachedResult.config.trajectory_alpha || 0.0;
+    let remaining;
+    if (Math.abs(alpha) < 0.01) {
+      remaining = 1.0 - tNorm;
+    } else {
+      const expAt = Math.exp(-alpha * tNorm);
+      const expA = Math.exp(-alpha);
+      remaining = (expAt - expA) / (1.0 - expA);
+    }
     const trajectory = w.initial_profile.map((init, i) =>
-      init * (1 - progress) + w.target_profile[i] * progress
+      w.target_profile[i] + (init - w.target_profile[i]) * remaining
     );
 
     charts.updateProfileChart(radialPos, w.target_profile, t.profile, w.initial_profile, trajectory);
