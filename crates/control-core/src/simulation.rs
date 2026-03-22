@@ -28,8 +28,10 @@ pub struct SimConfig {
     pub seed: u64,
     /// Record turn-level detail for every Nth wafer (0 = none)
     pub turn_detail_every_n: usize,
-    /// Trajectory shape: <1 = coarse-to-fine, 1 = linear, >1 = fine-to-coarse
+    /// Trajectory alpha: 0 = linear, >0 = coarse-to-fine (exp decay), <0 = fine-to-coarse
     pub trajectory_alpha: f64,
+    /// Slew weight W_Δu: controls pressure smoothness (higher = smoother, slower response)
+    pub slew_weight: f64,
 }
 
 impl Default for SimConfig {
@@ -48,6 +50,7 @@ impl Default for SimConfig {
             seed: 42,
             turn_detail_every_n: 5,
             trajectory_alpha: 0.0,      // linear (alpha=0 = no exponential decay)
+            slew_weight: 2.0,          // strong smoothing (anti-chatter)
         }
     }
 }
@@ -134,7 +137,10 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
     let g_dyn = DMatrix::from_fn(NY, NU, |r, c| g0[(r, c)]);
     let w_e = weights.build_we();
     let w_u = weights.build_wu();
-    let w_du = weights.build_wdu();
+    // Override slew weight from config (UI-controllable)
+    let w_du = nalgebra::DMatrix::from_diagonal(
+        &nalgebra::DVector::from_element(NU, config.slew_weight),
+    );
 
     let mut r2r = R2RController::new(
         &g0,
