@@ -220,13 +220,14 @@ export function updateTrajectoryChart(config, initialProfile, targetProfile, tur
   const tgtCenter = targetProfile[centerIdx];
   const tgtEdge = targetProfile[edgeIdx];
 
-  // Build trajectory curves (every 2nd turn for performance)
+  // Sample every N turns to keep data small
+  const step = Math.max(1, Math.floor(nTurns / 80));
   const labels = [];
   const trajCenter = [];
   const trajEdge = [];
   const targetLine = [];
-  for (let j = 0; j <= nTurns; j += 2) {
-    labels.push(j.toString());
+  for (let j = 0; j <= nTurns; j += step) {
+    labels.push(j);
     const t = j / nTurns;
     const progress = Math.pow(Math.min(t, 1.0), shape);
     trajCenter.push(initCenter * (1 - progress) + tgtCenter * progress);
@@ -234,55 +235,30 @@ export function updateTrajectoryChart(config, initialProfile, targetProfile, tur
     targetLine.push(2000);
   }
 
-  // Build actual thickness curves from turn snapshots
-  const actCenter = [];
-  const actEdge = [];
-  const actLabels = [];
+  // Build actual thickness from snapshots — use a lookup map by turn number
+  const actCenterMap = new Map();
+  const actEdgeMap = new Map();
   if (turnSnapshots && turnSnapshots.length > 0) {
     for (const t of turnSnapshots) {
-      actLabels.push(t.turn.toString());
-      actCenter.push(t.profile[centerIdx]);
-      actEdge.push(t.profile[edgeIdx]);
+      actCenterMap.set(t.turn, t.profile[centerIdx]);
+      actEdgeMap.set(t.turn, t.profile[edgeIdx]);
     }
   }
 
-  // Use trajectory labels as primary
+  const actCenter = labels.map(j => actCenterMap.has(j) ? actCenterMap.get(j) : null);
+  const actEdge = labels.map(j => actEdgeMap.has(j) ? actEdgeMap.get(j) : null);
+
   c.data.labels = labels;
   c.data.datasets[0].data = trajCenter;
   c.data.datasets[1].data = trajEdge;
-
-  // Map actual data onto the same label axis (sparse — only where we have snapshots)
-  if (actLabels.length > 0) {
-    const actCenterMapped = labels.map(l => {
-      const idx = actLabels.indexOf(l);
-      return idx >= 0 ? actCenter[idx] : null;
-    });
-    const actEdgeMapped = labels.map(l => {
-      const idx = actLabels.indexOf(l);
-      return idx >= 0 ? actEdge[idx] : null;
-    });
-    c.data.datasets[2].data = actCenterMapped;
-    c.data.datasets[3].data = actEdgeMapped;
-  } else {
-    c.data.datasets[2].data = [];
-    c.data.datasets[3].data = [];
-  }
-
+  c.data.datasets[2].data = actCenter;
+  c.data.datasets[3].data = actEdge;
   c.data.datasets[4].data = targetLine;
 
-  // Auto-scale Y
   c.options.scales.y.suggestedMin = Math.min(tgtCenter, tgtEdge) - 500;
   c.options.scales.y.suggestedMax = Math.max(initCenter, initEdge) + 500;
 
   c.update();
-}
-
-// Update trajectory chart with current animation frame position marker
-export function updateTrajectoryMarker(turnIdx) {
-  const c = charts.trajectory;
-  if (!c) return;
-  // We could add a vertical line annotation here, but for simplicity
-  // the actual thickness lines already show progress during animation
 }
 
 // ---- Influence Matrix Chart (G₀ columns) ----

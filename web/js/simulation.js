@@ -147,10 +147,6 @@ export function animateWafer(waferIdx, speedMs) {
     charts.updateProfileChart(radialPos, w.target_profile, t.profile, w.initial_profile, trajectory);
     charts.updatePressureChart(t.pressure);
 
-    // Update trajectory chart with actual data up to current turn
-    const turnsSoFar = turnData.slice(0, turnIdx + 1);
-    charts.updateTrajectoryChart(cachedResult.config, w.initial_profile, w.target_profile, turnsSoFar);
-
     statusEl.textContent = `Wafer ${waferIdx}, Turn ${t.turn}/${nTurns} (${t.time_sec.toFixed(0)}s) — RMS: ${t.rms_error.toFixed(1)} Å, Range: ${t.profile_range.toFixed(1)} Å`;
 
     turnIdx++;
