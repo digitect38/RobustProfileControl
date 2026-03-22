@@ -134,6 +134,157 @@ export function updateProfileChart(radialPos, target, current, initial, trajecto
   c.update();
 }
 
+// ---- Trajectory Chart (thickness vs time) ----
+
+export function createTrajectoryChart(ctx) {
+  charts.trajectory = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Trajectory (center)',
+          borderColor: COLORS.blue,
+          borderDash: [6, 3],
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+          data: [],
+        },
+        {
+          label: 'Trajectory (edge)',
+          borderColor: COLORS.teal,
+          borderDash: [6, 3],
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+          data: [],
+        },
+        {
+          label: 'Actual (center)',
+          borderColor: COLORS.blue,
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2.5,
+          data: [],
+        },
+        {
+          label: 'Actual (edge)',
+          borderColor: COLORS.teal,
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2.5,
+          data: [],
+        },
+        {
+          label: 'Target (2000 Å)',
+          borderColor: '#c0392b',
+          borderDash: [3, 3],
+          backgroundColor: 'transparent',
+          pointRadius: 0,
+          borderWidth: 1.5,
+          data: [],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 0 },
+      plugins: {
+        title: { display: true, text: 'Thickness Trajectory vs. Time', color: COLORS.blue, font: { size: 12 } },
+        legend: { position: 'top', labels: { boxWidth: 16, font: { size: 10 }, padding: 6 } },
+      },
+      scales: {
+        x: { title: { display: true, text: 'Turn (sec)' }, ticks: { maxTicksLimit: 10 } },
+        y: { title: { display: true, text: 'Thickness (Å)' }, suggestedMin: 0, suggestedMax: 12000 },
+      },
+    },
+  });
+}
+
+export function updateTrajectoryChart(config, initialProfile, targetProfile, turnSnapshots) {
+  const c = charts.trajectory;
+  if (!c) return;
+
+  const nTurns = config.turns_per_wafer;
+  const shape = config.trajectory_shape || 1.0;
+  const centerIdx = 0;
+  const edgeIdx = initialProfile.length - 1;
+  const initCenter = initialProfile[centerIdx];
+  const initEdge = initialProfile[edgeIdx];
+  const tgtCenter = targetProfile[centerIdx];
+  const tgtEdge = targetProfile[edgeIdx];
+
+  // Build trajectory curves (every 2nd turn for performance)
+  const labels = [];
+  const trajCenter = [];
+  const trajEdge = [];
+  const targetLine = [];
+  for (let j = 0; j <= nTurns; j += 2) {
+    labels.push(j.toString());
+    const t = j / nTurns;
+    const progress = Math.pow(Math.min(t, 1.0), shape);
+    trajCenter.push(initCenter * (1 - progress) + tgtCenter * progress);
+    trajEdge.push(initEdge * (1 - progress) + tgtEdge * progress);
+    targetLine.push(2000);
+  }
+
+  // Build actual thickness curves from turn snapshots
+  const actCenter = [];
+  const actEdge = [];
+  const actLabels = [];
+  if (turnSnapshots && turnSnapshots.length > 0) {
+    for (const t of turnSnapshots) {
+      actLabels.push(t.turn.toString());
+      actCenter.push(t.profile[centerIdx]);
+      actEdge.push(t.profile[edgeIdx]);
+    }
+  }
+
+  // Use trajectory labels as primary
+  c.data.labels = labels;
+  c.data.datasets[0].data = trajCenter;
+  c.data.datasets[1].data = trajEdge;
+
+  // Map actual data onto the same label axis (sparse — only where we have snapshots)
+  if (actLabels.length > 0) {
+    const actCenterMapped = labels.map(l => {
+      const idx = actLabels.indexOf(l);
+      return idx >= 0 ? actCenter[idx] : null;
+    });
+    const actEdgeMapped = labels.map(l => {
+      const idx = actLabels.indexOf(l);
+      return idx >= 0 ? actEdge[idx] : null;
+    });
+    c.data.datasets[2].data = actCenterMapped;
+    c.data.datasets[3].data = actEdgeMapped;
+  } else {
+    c.data.datasets[2].data = [];
+    c.data.datasets[3].data = [];
+  }
+
+  c.data.datasets[4].data = targetLine;
+
+  // Auto-scale Y
+  c.options.scales.y.suggestedMin = Math.min(tgtCenter, tgtEdge) - 500;
+  c.options.scales.y.suggestedMax = Math.max(initCenter, initEdge) + 500;
+
+  c.update();
+}
+
+// Update trajectory chart with current animation frame position marker
+export function updateTrajectoryMarker(turnIdx) {
+  const c = charts.trajectory;
+  if (!c) return;
+  // We could add a vertical line annotation here, but for simplicity
+  // the actual thickness lines already show progress during animation
+}
+
 // ---- Influence Matrix Chart (G₀ columns) ----
 
 const ZONE_COLORS = [

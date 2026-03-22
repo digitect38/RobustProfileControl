@@ -171,6 +171,7 @@ async function main() {
 
 function createAllCharts() {
   charts.createProfileChart(document.getElementById('chart-profile'));
+  charts.createTrajectoryChart(document.getElementById('chart-trajectory'));
   charts.createInfluenceChart(document.getElementById('chart-influence'));
   charts.createZoneCoverageChart(document.getElementById('chart-influence-heatmap'));
   charts.createZoneTestChart(document.getElementById('chart-zone-test'));
