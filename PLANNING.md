@@ -140,25 +140,30 @@ Retaining ring (σ = 3 mm, rebound pivot at 146 mm):
 
 **Initial profile**: Deterministic center-thick parabolic pattern. Average = 10,000 Å, range = 1,000 Å exactly. No random variation — same for every wafer.
 
-### 3.2 Configurable Trajectory Shape (Coarse-to-Fine Polishing)
+### 3.2 Exponential Decay Trajectory (Coarse-to-Fine Polishing)
 
-The trajectory controls how removal is distributed over time:
+The trajectory controls how removal is distributed over time using **exponential decay**:
 
 ```
-progress = (turn / N)^shape
-thickness(turn) = initial × (1 − progress) + target × progress
+remaining = (exp(-α·t/T) − exp(-α)) / (1 − exp(-α))
+thickness(t) = target + (initial − target) × remaining
+
+For α = 0: falls back to linear (constant removal rate)
 ```
 
-| Shape | Strategy | First-half removal | Use case |
-|-------|----------|-------------------|----------|
-| 0.3 | Very aggressive bulk | ~80% | Fast bulk, careful endpoint |
-| 0.5 | Moderate front-load | ~71% | Standard coarse-to-fine |
-| 1.0 | Linear (default) | 50% | Constant removal rate |
-| 2.0 | Back-loaded | ~25% | Gentle start, aggressive finish |
+| α | Strategy | Early:Late ratio | Use case |
+|---|----------|-----------------|----------|
+| 0 | Linear (default) | 1:1 | Constant 50 Å/turn |
+| 1.0 | Moderate exp decay | 2.7:1 | Standard coarse-to-fine |
+| 1.4 | 4:1 ratio | 4:1 | Max allowed (100/25 Å/turn) |
+| 3.0 | Aggressive decay | 20:1 raw, clamped | Fast bulk, careful endpoint |
+| <0 | Reverse decay | 1:N | Gentle early, aggressive late |
+
+**Removal rate clamping**: Per-turn average removal is clamped to **[25, 100] Å/turn** (½× to 2× nominal). This prevents physically impossible demands on aggressive trajectories while preserving the trajectory shape.
 
 This is standard multi-phase CMP practice — aggressive bulk removal early, then fine/clearing phase near the target thickness for uniformity.
 
-### 3.3 Two-Phase InRun Control
+### 3.3 Two-Phase InRun Control with Exponential Smoothing
 
 **Phase 1 — Steady-state optimization (once per wafer)**:
 Compute the optimal constant pressure vector via unconstrained least-squares:
@@ -167,12 +172,28 @@ u* = (G^T G)^{-1} G^T × (removal_per_turn)
 ```
 Clamped to actuator bounds. This is the best pressure for the average removal rate.
 
-**Phase 2 — Turn-wise QP correction**:
+**Phase 2 — Turn-wise QP correction with exponential smoothing**:
 When disturbance, noise, or non-linear trajectory is active, re-solve the QP each turn:
 ```
 min |W_e(removal_needed − G·u)|² + |W_u·u|² + |W_Δu·(u − u_prev)|²
-s.t. u_min ≤ u ≤ u_max,  Δu_min ≤ u − u_prev ≤ Δu_max
+s.t. u_min ≤ u ≤ u_max
 ```
+
+The QP output is then passed through a **first-order exponential smoothing filter** to eliminate triangle-wave oscillation from the reactive QP:
+```
+u_smooth = α_s · u_qp + (1 − α_s) · u_prev
+α_s = 1 / (1 + W_Δu)
+```
+
+| W_Δu | α_s | Behavior |
+|------|-----|----------|
+| 0.5 | 0.67 | Fast tracking, light smoothing |
+| 2.0 | 0.33 | Balanced (default) — smooth exponential response |
+| 5.0 | 0.17 | Very smooth, slow disturbance rejection |
+| 10.0 | 0.09 | Near-constant pressure |
+
+The **W_Δu slider** in the UI controls both the QP slew cost AND the exponential filter — a single knob for the **tracking-vs-smoothness trade-off**. Without this filter, the reactive QP creates linear ramps (triangle waves) when correcting disturbance.
+
 Under ideal conditions (zero disturbance/noise, linear trajectory), Phase 1 alone gives the optimal result without QP re-solving.
 
 **Ideal-condition performance**:
@@ -207,7 +228,7 @@ Effective bounds (merging absolute + slew):
 Weight tuning (optimized for 101-point tracking):
 - W_e = 1.0 (strong tracking priority)
 - W_u = 0.001 (minimal effort penalty)
-- W_Δu = 0.01 (moderate slew smoothing)
+- W_Δu = 2.0 (strong anti-chatter, UI-configurable 0.01–10.0)
 - Edge points (r > 127.5 mm): 1.5× error emphasis
 
 ### 3.6 Hierarchical Control Loop
@@ -221,10 +242,12 @@ For each wafer k:
   Phase 1: steady_u = (G^T G)^{-1} G^T × per_turn_removal  [clamped]
 
   For each turn j = 0..N:
-    progress = (j/N)^trajectory_shape
-    trajectory_target = initial*(1−progress) + target*progress
+    remaining = exp_decay(j/N, α)          // exponential trajectory
+    trajectory_target = target + (initial − target) × remaining
+    removal_needed = clamp_rate(thickness − trajectory_target, [25,100])
     if ideal:  u = steady_u
-    else:      u = QP_solve(thickness − trajectory_target)
+    else:      u_qp = QP_solve(removal_needed)
+               u = α_s·u_qp + (1−α_s)·u_prev     // exponential smoothing
     thickness −= G · u + disturbance
 
   R2R.step(target=2000Å, metrology=thickness)  // with delay
@@ -250,16 +273,16 @@ For each wafer k:
 | Group | Controls |
 |-------|----------|
 | CMP Process | Display: 10,000→2,000 Å, 50 Å/turn, 1 sec/turn |
-| Simulation | Wafers, turns/wafer, metrology delay, SVD modes (rc), seed |
-| Trajectory | **Shape slider** (0.1–3.0): <1 coarse→fine, 1 linear, >1 fine→coarse |
-| Controllers | Enable InRun, Enable R2R |
+| Simulation | Wafers, turns/wafer, metrology delay, SVD modes (rc), seed + **Random** button |
+| Trajectory | **α slider** (-2.0–5.0): 0 = linear, >0 = coarse→fine exp decay, <0 = fine→coarse |
+| Controllers | Enable InRun, Enable R2R, **W_Δu slider** (0.01–10.0, anti-chatter smoothing) |
 | Disturbance | Amplitude (Å/turn), Noise (Å) — both go to true zero |
 | Wear Drift | Enable, rate |
 | Wafer Inspector | Wafer # slider, animation speed |
 
 ---
 
-## 5. Test Strategy — 417 Tests
+## 5. Test Strategy — 456 Tests
 
 ### 5.1 Unit Tests (28 tests)
 
@@ -309,16 +332,30 @@ For each wafer k:
 - `null_space_residual_is_the_only_error`: Simulation RMS = theoretical minimum (7.6628 Å)
 - `compare_ideal_vs_default_disturbance`: Shows disturbance causes noise, not the model
 
-### 5.4 Integration Tests (41 tests)
+### 5.4 Recent Features Tests (39 tests)
+
+| Category | Count | Key verifications |
+|----------|-------|-------------------|
+| Exponential trajectory | 9 | α=0 linear, front/back-loaded, monotone, start/end, 4:1 ratio |
+| Removal rate clamping | 5 | Caps at 100, floors at 25, preserves shape, constants |
+| Anti-chattering | 4 | W_Δu=2.0 strong, pressure stable with noise, constant without |
+| Preston CCDF kernel | 5 | Flat inside zone, Zone 1 full diameter, edge reflection, σ=6/3 |
+| RR rebound pivot | 5 | +ve at 140mm, -ve at 150mm, crossing at 146mm, smooth |
+| Deterministic profile | 3 | Bit-identical, center-thick, exact avg/range |
+| Zone geometry | 3 | Widths match spec, carrier 0–150, RR outside |
+| Simulation with features | 5 | Exp trajectory, negative α, clamped removal, seed behavior |
+
+### 5.5 Integration Tests (41 tests)
 
 QP correctness, SVD properties, plant physics, bounds, observer, controllers, simulation end-to-end.
 
-### 5.5 Running Tests
+### 5.6 Running Tests
 
 ```bash
-cargo test                              # All 417 tests
+cargo test                              # All 456 tests
 cargo test --lib                        # 28 unit tests
 cargo test --test comprehensive_tests   # 345 comprehensive
+cargo test --test recent_features_tests # 39 recent features
 cargo test --test debug_noise           # 3 diagnostic
 cargo test --test integration_tests     # 41 integration
 cargo test -- --nocapture               # With stdout
@@ -332,7 +369,7 @@ cargo test -- --nocapture               # With stdout
 # Build native
 cargo build
 
-# Run all 417 tests
+# Run all 456 tests
 cargo test
 
 # Build WASM for web
@@ -371,6 +408,7 @@ RobustProfileControl/
 │   │   │   └── simulation.rs            # Full simulation engine (two-phase InRun)
 │   │   └── tests/
 │   │       ├── comprehensive_tests.rs   # 345 tests across 19 categories
+│   │       ├── recent_features_tests.rs # 39 tests for exp trajectory, clamping, anti-chatter
 │   │       ├── debug_noise.rs           # 3 diagnostic/proof tests
 │   │       └── integration_tests.rs     # 41 integration tests
 │   └── wasm-bridge/
@@ -412,8 +450,9 @@ Random disturbance d_j at each turn accumulates as a random walk. With amplitude
 | Phase 2 | InRun constrained baseline | **Implemented** (two-phase: LS + QP) |
 | Phase 3 | Supervisory R2R adaptation | **Implemented** (SVD + delayed observer) |
 | Phase 4 | Integrated robust controller | **Implemented** (hierarchical sim) |
-| Phase 5 | Trajectory optimization | **Implemented** (configurable shape) |
-| Phase 6 | Scheduled/adaptive MPC | Future: online model update, preview |
+| Phase 5 | Trajectory optimization | **Implemented** (exponential decay, removal clamping) |
+| Phase 6 | Pressure smoothing | **Implemented** (exponential filter, UI-tunable W_Δu) |
+| Phase 7 | Scheduled/adaptive MPC | Future: online model update, preview |
 
 ### Remaining for production:
 - Real in-situ sensing interface and latency characterization
