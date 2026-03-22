@@ -210,6 +210,14 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
         // Phase 2: Turn-by-turn loop.
         // Re-solve QP when there's disturbance/noise or non-linear trajectory.
         let is_nonlinear = (config.trajectory_shape - 1.0).abs() > 0.01;
+
+        // Absolute-only bounds (no slew limits) for non-linear trajectory
+        let abs_bounds = ActuatorBounds {
+            u_min: bounds.u_min,
+            u_max: bounds.u_max,
+            du_min: [-100.0; NU],
+            du_max: [100.0; NU],
+        };
         let has_corrections = config.disturbance_amplitude > 0.0
             || config.noise_amplitude > 0.0
             || config.enable_wear_drift
@@ -230,12 +238,21 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
 
                     let removal_dyn = DVector::from_fn(NY, |i, _| removal_needed[i]);
                     let u_prev_dyn = DVector::from_fn(NU, |i, _| u_prev[i]);
+
+                    // Use absolute-only bounds (no slew) for non-linear trajectory
+                    // so pressure can jump freely to track varying removal rate.
+                    // Use slew-limited bounds when only correcting for disturbance.
+                    let qp_bounds = if is_nonlinear {
+                        &abs_bounds
+                    } else {
+                        &bounds
+                    };
                     let prob = QpSolver::build_cmp_qp(
                         &g_dyn, &removal_dyn, &u_prev_dyn,
-                        &w_e, &w_u, &w_du, &bounds,
+                        &w_e, &w_u, &w_du, qp_bounds,
                     );
                     let sol = qp.solve(&prob);
-                    let (lb, ub) = bounds.effective_bounds(&u_prev);
+                    let (lb, ub) = qp_bounds.effective_bounds(&u_prev);
                     for i in 0..NU {
                         if (sol.x[i] - lb[i]).abs() < 1e-6 || (sol.x[i] - ub[i]).abs() < 1e-6 {
                             saturation_count += 1;
