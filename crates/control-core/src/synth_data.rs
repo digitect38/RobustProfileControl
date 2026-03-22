@@ -256,18 +256,36 @@ pub fn generate_target_profile() -> Vec21 {
 
 /// Generate a target thickness trajectory for InRun control.
 ///
-/// Linear ramp from initial_profile to target over n_turns.
-/// r_{k,j} = initial - (j/n_turns) * (initial - target)
+/// The `shape` parameter controls the removal distribution over time:
+///   shape = 1.0 → linear (constant removal rate)
+///   shape < 1.0 → coarse-to-fine (aggressive early, gentle near target)
+///   shape > 1.0 → fine-to-coarse (gentle early, aggressive late)
+///
+/// Common CMP strategies:
+///   shape = 0.3 → very aggressive bulk removal, careful endpoint
+///   shape = 0.5 → moderate front-loading (square-root trajectory)
+///   shape = 1.0 → linear (default)
+///   shape = 2.0 → slow start, fast finish
+///
+/// The trajectory interpolates as:
+///   progress = (turn / n_turns)^shape
+///   thickness = initial * (1 - progress) + target * progress
+///
+/// Per-turn removal rate:
+///   At t=0: removal_rate ∝ shape * (1/N)^(shape-1)  (high if shape < 1)
+///   At t=1: removal_rate ∝ shape * 1                  (normal)
 pub fn generate_thickness_trajectory(
     initial_profile: &Vec21,
     target: &Vec21,
     n_turns: usize,
     turn: usize,
+    shape: f64,
 ) -> Vec21 {
     let t = (turn as f64) / (n_turns as f64).max(1.0);
     let t = t.min(1.0);
-    // Linear interpolation: initial * (1-t) + target * t
-    initial_profile * (1.0 - t) + target * t
+    // Power-law progress: shape < 1 = front-loaded, shape > 1 = back-loaded
+    let progress = t.powf(shape.max(0.01));
+    initial_profile * (1.0 - progress) + target * progress
 }
 
 // ============================================================================
@@ -542,7 +560,7 @@ mod tests {
         let initial = Vec21::from_element(10000.0);
         let target = Vec21::from_element(2000.0);
 
-        let mid = generate_thickness_trajectory(&initial, &target, 160, 80);
+        let mid = generate_thickness_trajectory(&initial, &target, 160, 80, 1.0);
         // At halfway, should be ~6000
         assert!(
             (mid[0] - 6000.0).abs() < 1.0,
@@ -550,7 +568,7 @@ mod tests {
             mid[0]
         );
 
-        let end = generate_thickness_trajectory(&initial, &target, 160, 160);
+        let end = generate_thickness_trajectory(&initial, &target, 160, 160, 1.0);
         assert!(
             (end[0] - 2000.0).abs() < 1.0,
             "End trajectory should be ~2000, got {:.0}",

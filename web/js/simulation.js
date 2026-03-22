@@ -129,9 +129,11 @@ export function animateWafer(waferIdx, speedMs) {
     }
 
     const t = turnData[turnIdx];
-    const frac = (t.turn + 1) / nTurns;
+    const tNorm = (t.turn + 1) / nTurns;
+    const shape = cachedResult.config.trajectory_shape || 1.0;
+    const progress = Math.pow(Math.min(tNorm, 1.0), shape);
     const trajectory = w.initial_profile.map((init, i) =>
-      init * (1 - frac) + w.target_profile[i] * frac
+      init * (1 - progress) + w.target_profile[i] * progress
     );
 
     charts.updateProfileChart(radialPos, w.target_profile, t.profile, w.initial_profile, trajectory);

@@ -28,6 +28,8 @@ pub struct SimConfig {
     pub seed: u64,
     /// Record turn-level detail for every Nth wafer (0 = none)
     pub turn_detail_every_n: usize,
+    /// Trajectory shape: <1 = coarse-to-fine, 1 = linear, >1 = fine-to-coarse
+    pub trajectory_shape: f64,
 }
 
 impl Default for SimConfig {
@@ -45,6 +47,7 @@ impl Default for SimConfig {
             noise_amplitude: 5.0,       // ±5 Å metrology noise
             seed: 42,
             turn_detail_every_n: 5,
+            trajectory_shape: 1.0,      // linear (default)
         }
     }
 }
@@ -205,11 +208,12 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
         let mut u_prev = steady_u;
 
         // Phase 2: Turn-by-turn loop.
-        // Start from the optimal steady-state. Only re-solve the QP when
-        // there's actual disturbance or noise to correct for.
+        // Re-solve QP when there's disturbance/noise or non-linear trajectory.
+        let is_nonlinear = (config.trajectory_shape - 1.0).abs() > 0.01;
         let has_corrections = config.disturbance_amplitude > 0.0
             || config.noise_amplitude > 0.0
-            || config.enable_wear_drift;
+            || config.enable_wear_drift
+            || is_nonlinear;
 
         for j in 0..config.turns_per_wafer {
             let u = if config.enable_inrun {
@@ -218,6 +222,7 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
                     let trajectory_target = generate_thickness_trajectory(
                         &initial_profile, &target,
                         config.turns_per_wafer, j + 1,
+                        config.trajectory_shape,
                     );
                     let noise = rng.random_vec21(config.noise_amplitude);
                     let measured_thickness = thickness + noise;

@@ -9,10 +9,11 @@ export function gatherConfig() {
     enable_inrun: document.getElementById('cfg-inrun').checked,
     enable_r2r: document.getElementById('cfg-r2r').checked,
     enable_wear_drift: document.getElementById('cfg-wear').checked,
-    wear_rate: parseFloat(document.getElementById('cfg-wear-rate').value) || 0.02,
-    disturbance_amplitude: parseFloat(document.getElementById('cfg-dist').value) || 3.0,
-    noise_amplitude: parseFloat(document.getElementById('cfg-noise').value) || 5.0,
+    wear_rate: parseFloat(document.getElementById('cfg-wear-rate').value),
+    disturbance_amplitude: parseFloat(document.getElementById('cfg-dist').value),
+    noise_amplitude: parseFloat(document.getElementById('cfg-noise').value),
     seed: parseInt(document.getElementById('cfg-seed').value) || 42,
+    trajectory_shape: parseFloat(document.getElementById('cfg-shape').value),
     // Record turn detail for every 3rd wafer (balance memory vs animation)
     turn_detail_every_n: 3,
   };
@@ -21,6 +22,7 @@ export function gatherConfig() {
 export function setupRangeDisplays() {
   const pairs = [
     ['cfg-rc', 'cfg-rc-val'],
+    ['cfg-shape', 'cfg-shape-val'],
     ['cfg-dist', 'cfg-dist-val'],
     ['cfg-noise', 'cfg-noise-val'],
     ['cfg-wear-rate', 'cfg-wear-rate-val'],

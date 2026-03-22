@@ -3,8 +3,48 @@
 use control_core::simulation::{run_simulation, SimConfig};
 use control_core::synth_data::*;
 use control_core::types::*;
-use control_core::qp::QpSolver;
 use nalgebra::{DMatrix, DVector};
+
+#[test]
+fn compare_ideal_vs_default_disturbance() {
+    // IDEAL: zero disturbance, zero noise
+    let ideal = run_simulation(&SimConfig {
+        n_wafers: 1, turns_per_wafer: 160,
+        disturbance_amplitude: 0.0, noise_amplitude: 0.0,
+        enable_inrun: true, enable_r2r: false,
+        ..Default::default()
+    });
+    let ws_ideal = &ideal.wafer_snapshots[0];
+
+    // DEFAULT: disturbance=3.0, noise=5.0 (what the UI shows on first load)
+    let noisy = run_simulation(&SimConfig {
+        n_wafers: 1, turns_per_wafer: 160,
+        disturbance_amplitude: 3.0, noise_amplitude: 5.0,
+        enable_inrun: true, enable_r2r: false,
+        ..Default::default()
+    });
+    let ws_noisy = &noisy.wafer_snapshots[0];
+
+    println!("=== WHAT YOU SEE IN THE BROWSER ===\n");
+    println!("  Ideal (dist=0, noise=0):  RMS={:.1} Å  range={:.1} Å",
+        ws_ideal.rms_error, ws_ideal.profile_range);
+    println!("  Default (dist=3, noise=5): RMS={:.1} Å  range={:.1} Å",
+        ws_noisy.rms_error, ws_noisy.profile_range);
+    println!();
+    println!("The DEFAULT config has disturbance_amplitude=3.0 Å/turn.");
+    println!("Over 160 turns, disturbance accumulates as a random walk:");
+    println!("  expected std_dev ≈ 3.0 × √160 ≈ {:.0} Å", 3.0 * (160.0_f64).sqrt());
+    println!();
+    println!("G₀ is smooth → removal G·u is smooth.");
+    println!("But disturbance d_j is RANDOM → it adds non-smooth noise every turn.");
+    println!("The controller corrects 11 controllable modes, but the");
+    println!("remaining 90 null-space modes of disturbance ACCUMULATE as noise.");
+    println!();
+
+    // The default UI shows the noisy result, not the ideal one
+    assert!(ws_noisy.rms_error > ws_ideal.rms_error * 2.0,
+        "Disturbance should significantly increase error");
+}
 
 #[test]
 fn ideal_error_is_smooth_not_noisy() {

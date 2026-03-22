@@ -3885,7 +3885,7 @@ fn gp_d_p11_has_weight_structure() {
 fn trajectory_start_equals_initial() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let start = generate_thickness_trajectory(&initial, &target, 160, 0);
+    let start = generate_thickness_trajectory(&initial, &target, 160, 0, 1.0);
     for j in 0..NY {
         assert!(
             (start[j] - initial[j]).abs() < 1e-10,
@@ -3898,7 +3898,7 @@ fn trajectory_start_equals_initial() {
 fn trajectory_end_equals_target() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let end = generate_thickness_trajectory(&initial, &target, 160, 160);
+    let end = generate_thickness_trajectory(&initial, &target, 160, 160, 1.0);
     for j in 0..NY {
         assert!(
             (end[j] - target[j]).abs() < 1e-10,
@@ -3911,9 +3911,9 @@ fn trajectory_end_equals_target() {
 fn trajectory_monotone_decreasing() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let mut prev = generate_thickness_trajectory(&initial, &target, 160, 0);
+    let mut prev = generate_thickness_trajectory(&initial, &target, 160, 0, 1.0);
     for t in 1..=160 {
-        let curr = generate_thickness_trajectory(&initial, &target, 160, t);
+        let curr = generate_thickness_trajectory(&initial, &target, 160, t, 1.0);
         for j in 0..NY {
             assert!(
                 curr[j] <= prev[j] + 1e-10,
@@ -3929,7 +3929,7 @@ fn trajectory_monotone_decreasing() {
 fn trajectory_midpoint_correct() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let mid = generate_thickness_trajectory(&initial, &target, 160, 80);
+    let mid = generate_thickness_trajectory(&initial, &target, 160, 80, 1.0);
     let expected = (10000.0 + 2000.0) / 2.0;
     for j in 0..NY {
         assert!(
@@ -3944,7 +3944,7 @@ fn trajectory_midpoint_correct() {
 fn trajectory_quarter_point() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let q = generate_thickness_trajectory(&initial, &target, 160, 40);
+    let q = generate_thickness_trajectory(&initial, &target, 160, 40, 1.0);
     let expected = 10000.0 * 0.75 + 2000.0 * 0.25;
     assert!(
         (q[0] - expected).abs() < 1.0,
@@ -3957,7 +3957,7 @@ fn trajectory_quarter_point() {
 fn trajectory_three_quarter_point() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let q = generate_thickness_trajectory(&initial, &target, 160, 120);
+    let q = generate_thickness_trajectory(&initial, &target, 160, 120, 1.0);
     let expected = 10000.0 * 0.25 + 2000.0 * 0.75;
     assert!(
         (q[0] - expected).abs() < 1.0,
@@ -3970,7 +3970,7 @@ fn trajectory_three_quarter_point() {
 fn trajectory_beyond_n_turns_saturates() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let beyond = generate_thickness_trajectory(&initial, &target, 160, 200);
+    let beyond = generate_thickness_trajectory(&initial, &target, 160, 200, 1.0);
     // t = min(200/160, 1.0) = 1.0, so should equal target
     for j in 0..NY {
         assert!(
@@ -3984,7 +3984,7 @@ fn trajectory_beyond_n_turns_saturates() {
 fn trajectory_single_turn() {
     let initial = Vec21::from_element(10000.0);
     let target = Vec21::from_element(2000.0);
-    let at_1 = generate_thickness_trajectory(&initial, &target, 1, 1);
+    let at_1 = generate_thickness_trajectory(&initial, &target, 1, 1, 1.0);
     // t = 1/1 = 1.0, should be at target
     for j in 0..NY {
         assert!(
@@ -3998,7 +3998,7 @@ fn trajectory_single_turn() {
 fn trajectory_with_nonuniform_profiles() {
     let initial = generate_initial_profile();
     let target = generate_target_profile();
-    let mid = generate_thickness_trajectory(&initial, &target, 160, 80);
+    let mid = generate_thickness_trajectory(&initial, &target, 160, 80, 1.0);
     for j in 0..NY {
         let expected = 0.5 * initial[j] + 0.5 * target[j];
         assert!(
@@ -4014,7 +4014,7 @@ fn trajectory_linear_interpolation() {
     let initial = Vec21::from_element(100.0);
     let target = Vec21::from_element(0.0);
     for t in 0..=10 {
-        let traj = generate_thickness_trajectory(&initial, &target, 10, t);
+        let traj = generate_thickness_trajectory(&initial, &target, 10, t, 1.0);
         let expected = 100.0 * (1.0 - t as f64 / 10.0);
         assert!(
             (traj[0] - expected).abs() < 1e-10,

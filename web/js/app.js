@@ -94,7 +94,26 @@ async function main() {
           const elapsed = (performance.now() - t0).toFixed(0);
           const result = JSON.parse(resultJson);
           simulation.processResult(result);
-          statusEl.textContent = `Done: ${result.wafer_snapshots.length} wafers, ${config.turns_per_wafer} turns/wafer (${elapsed}ms)`;
+          const lastW = result.wafer_snapshots[result.wafer_snapshots.length-1];
+          statusEl.textContent = `Done: ${result.wafer_snapshots.length} wafers | dist=${config.disturbance_amplitude} noise=${config.noise_amplitude} | RMS=${lastW.rms_error.toFixed(1)}Å range=${lastW.profile_range.toFixed(1)}Å (${elapsed}ms)`;
+
+          // Debug: dump last wafer profile to console and debug panel
+          const r_out = JSON.parse(get_radial_positions());
+          let debugLines = [`=== Last Wafer (#${lastW.wafer}) Final Profile ===`];
+          debugLines.push(`Config: dist=${config.disturbance_amplitude}, noise=${config.noise_amplitude}, inrun=${config.enable_inrun}, r2r=${config.enable_r2r}`);
+          debugLines.push(`RMS=${lastW.rms_error.toFixed(4)}, range=${lastW.profile_range.toFixed(4)}, edge=${lastW.edge_error.toFixed(4)}`);
+          debugLines.push('');
+          debugLines.push('r(mm)     thickness    target       error');
+          for (let j = 0; j < lastW.final_profile.length; j += 5) {
+            const r = r_out[j].toFixed(1).padStart(6);
+            const t = lastW.final_profile[j].toFixed(2).padStart(11);
+            const tgt = lastW.target_profile[j].toFixed(2).padStart(9);
+            const e = lastW.final_error[j].toFixed(2).padStart(10);
+            debugLines.push(`${r}  ${t}  ${tgt}  ${e}`);
+          }
+          const debugEl = document.getElementById('debug-output');
+          if (debugEl) debugEl.textContent = debugLines.join('\n');
+          console.log(debugLines.join('\n'));
         } catch (e) {
           statusEl.textContent = 'Error: ' + e.message;
           console.error('Simulation error:', e);
