@@ -176,48 +176,72 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
             Vec11::from_element(NOMINAL_PRESSURE)
         };
 
-        let mut u_prev = recipe;
         let mut saturation_count: usize = 0;
 
         let record_turns = config.turn_detail_every_n > 0
             && k % config.turn_detail_every_n == 0;
 
-        // InRun loop: iterate through turns within this wafer
+        // Phase 1: Compute the optimal steady-state pressure for this wafer.
+        // Solve constrained least-squares: min |r - G·u|² s.t. u_min ≤ u ≤ u_max
+        // No slew limits, no effort/slew penalty — pure tracking.
+        let per_turn_removal = (initial_profile - target) / (config.turns_per_wafer as f64);
+        let steady_u = if config.enable_inrun {
+            let removal_dyn = DVector::from_fn(NY, |i, _| per_turn_removal[i]);
+
+            // Unconstrained least-squares: u = (G^T G)^{-1} G^T r
+            // Then clamp to actuator bounds.
+            let gtg = g_dyn.transpose() * &g_dyn;
+            let gtr = g_dyn.transpose() * &removal_dyn;
+            let u_ls = gtg.cholesky()
+                .expect("G^T G should be positive definite")
+                .solve(&gtr);
+
+            // Clamp to absolute bounds
+            Vec11::from_fn(|i, _| u_ls[i].clamp(bounds.u_min[i], bounds.u_max[i]))
+        } else {
+            recipe
+        };
+
+        let mut u_prev = steady_u;
+
+        // Phase 2: Turn-by-turn loop.
+        // Start from the optimal steady-state. Only re-solve the QP when
+        // there's actual disturbance or noise to correct for.
+        let has_corrections = config.disturbance_amplitude > 0.0
+            || config.noise_amplitude > 0.0
+            || config.enable_wear_drift;
+
         for j in 0..config.turns_per_wafer {
-            // Compute trajectory target thickness AFTER this removal step
-            let trajectory_target = generate_thickness_trajectory(
-                &initial_profile,
-                &target,
-                config.turns_per_wafer,
-                j + 1,
-            );
-
-            // Desired removal this turn = current thickness - trajectory target
-            // Add measurement noise to thickness
-            let noise = rng.random_vec21(config.noise_amplitude);
-            let measured_thickness = thickness + noise;
-            let removal_needed = measured_thickness - trajectory_target;
-
-            // Solve QP: find u such that G*u ≈ removal_needed
-            //   min |W_e(removal_needed - G*u)|² + |W_u*u|² + |W_du*(u - u_prev)|²
-            //   s.t. u_min ≤ u ≤ u_max,  Δu_min ≤ u - u_prev ≤ Δu_max
             let u = if config.enable_inrun {
-                let removal_dyn = DVector::from_fn(NY, |i, _| removal_needed[i]);
-                let u_prev_dyn = DVector::from_fn(NU, |i, _| u_prev[i]);
-                let prob = QpSolver::build_cmp_qp(
-                    &g_dyn, &removal_dyn, &u_prev_dyn,
-                    &w_e, &w_u, &w_du, &bounds,
-                );
-                let sol = qp.solve(&prob);
-                // Check saturation
-                let (lb, ub) = bounds.effective_bounds(&u_prev);
-                for i in 0..NU {
-                    if (sol.x[i] - lb[i]).abs() < 1e-6 || (sol.x[i] - ub[i]).abs() < 1e-6 {
-                        saturation_count += 1;
-                        break;
+                if has_corrections {
+                    // Real-time correction: re-solve QP with measured thickness
+                    let trajectory_target = generate_thickness_trajectory(
+                        &initial_profile, &target,
+                        config.turns_per_wafer, j + 1,
+                    );
+                    let noise = rng.random_vec21(config.noise_amplitude);
+                    let measured_thickness = thickness + noise;
+                    let removal_needed = measured_thickness - trajectory_target;
+
+                    let removal_dyn = DVector::from_fn(NY, |i, _| removal_needed[i]);
+                    let u_prev_dyn = DVector::from_fn(NU, |i, _| u_prev[i]);
+                    let prob = QpSolver::build_cmp_qp(
+                        &g_dyn, &removal_dyn, &u_prev_dyn,
+                        &w_e, &w_u, &w_du, &bounds,
+                    );
+                    let sol = qp.solve(&prob);
+                    let (lb, ub) = bounds.effective_bounds(&u_prev);
+                    for i in 0..NU {
+                        if (sol.x[i] - lb[i]).abs() < 1e-6 || (sol.x[i] - ub[i]).abs() < 1e-6 {
+                            saturation_count += 1;
+                            break;
+                        }
                     }
+                    Vec11::from_fn(|i, _| sol.x[i])
+                } else {
+                    // Ideal conditions: use optimal steady-state pressure
+                    steady_u
                 }
-                Vec11::from_fn(|i, _| sol.x[i])
             } else {
                 recipe
             };
