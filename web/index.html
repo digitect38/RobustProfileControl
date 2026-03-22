@@ -35,7 +35,7 @@
         <label>Turns/wafer <input type="number" id="cfg-turns" value="160" min="20" max="500"></label>
         <label>Metro delay <input type="number" id="cfg-delay" value="1" min="0" max="10"></label>
         <label>SVD modes (r<sub>c</sub>) <input type="range" id="cfg-rc" min="1" max="11" value="8"><span id="cfg-rc-val">8</span></label>
-        <label>Seed <input type="number" id="cfg-seed" value="42" min="1" max="9999"></label>
+        <label>Seed <input type="number" id="cfg-seed" value="42" min="1" max="9999"> <button id="btn-random-seed" class="btn" style="padding:2px 8px;font-size:0.75rem;">Random</button></label>
       </section>
 
       <section class="param-group">
@@ -241,6 +241,6 @@
     </div>
     <pre id="debug-output" style="margin:0; white-space:pre; line-height:1.3;">Run simulation to see profile data...</pre>
   </div>
-  <script type="module" src="js/app.js?v=5"></script>
+  <script type="module" src="js/app.js?v=6"></script>
 </body>
 </html>

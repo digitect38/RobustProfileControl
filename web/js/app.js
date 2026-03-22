@@ -158,6 +158,12 @@ async function main() {
     simulation.updateWaferDetail(parseInt(e.target.value));
   });
 
+  // Wire up random seed button
+  document.getElementById('btn-random-seed').addEventListener('click', () => {
+    const seed = Math.floor(Math.random() * 9999) + 1;
+    document.getElementById('cfg-seed').value = seed;
+  });
+
   // Wire up SVD mode slider
   document.getElementById('cfg-rc').addEventListener('input', (e) => {
     const newRc = parseInt(e.target.value);
