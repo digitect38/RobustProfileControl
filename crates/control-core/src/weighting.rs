@@ -36,12 +36,17 @@ impl WeightConfig {
             }
         }
 
-        // Effort weight: very small — don't fight the tracking objective
+        // Effort weight: small — don't fight the tracking objective
         let mut effort_weights = vec![0.001; NU];
         effort_weights[10] = 0.002; // retaining ring slightly more
 
-        // Slew weight: moderate — smooth turn-to-turn pressure transitions
-        let slew_weights = vec![0.01; NU];
+        // Slew weight: STRONG — prevent pressure chattering from noise.
+        // The QP cost for a 1 psi change = 11 × W_Δu².
+        // Must be large enough that noise-induced corrections are suppressed
+        // while still allowing trajectory-driven changes.
+        // With W_Δu = 2.0 and noise = 5 Å: the QP tolerates ~2-3 Å tracking
+        // error rather than changing pressure by >0.5 psi per turn.
+        let slew_weights = vec![2.0; NU];
 
         WeightConfig {
             error_weights,
