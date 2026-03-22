@@ -277,9 +277,18 @@ pub fn run_simulation(config: &SimConfig) -> SimResult {
                 recipe
             };
 
-            // Apply removal: thickness -= G * u + disturbance
-            let removal = plant.g * u;
-            u_prev = u;
+            // Exponential smoothing: u_smooth = α·u_qp + (1−α)·u_prev
+            // This eliminates triangle-wave oscillation from the reactive QP.
+            // α = 1/(1 + W_Δu): higher slew weight → more smoothing.
+            let alpha_smooth = 1.0 / (1.0 + config.slew_weight);
+            let u_smooth = Vec11::from_fn(|i, _| {
+                alpha_smooth * u[i] + (1.0 - alpha_smooth) * u_prev[i]
+            });
+
+            // Apply removal with smoothed pressure
+            let removal = plant.g * u_smooth;
+            u_prev = u_smooth;
+            let u = u_smooth; // for snapshot recording
             let d_j = if j < disturbances[k].len() {
                 disturbances[k][j]
             } else {
